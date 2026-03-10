@@ -1,3 +1,5 @@
+## Note:
+
 (The submitted zip on Gradescope already contains the entire project, but in case there is any corruption or issues with the zip file the project code can also be obtained on this github page https://github.com/jiajunl23/neural-network-visualizer (already shared with mspertus). Note: the video because of its size is only in the zip Submitted to Gradescope)
 
 # Neural Network Visualizer
