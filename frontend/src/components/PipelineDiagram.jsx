@@ -12,17 +12,28 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 const MEASURE_SCRIPT = `
 <script>
 window.addEventListener('load', function() {
-  var b = document.body;
-  var w = Math.max(b.scrollWidth, b.offsetWidth);
-  var h = Math.max(b.scrollHeight, b.offsetHeight);
-  // Also check all absolutely positioned children
-  var els = document.querySelectorAll('[style*="position"]');
-  for (var i = 0; i < els.length; i++) {
-    var r = els[i].getBoundingClientRect();
-    if (r.right > w) w = Math.ceil(r.right);
-    if (r.bottom > h) h = Math.ceil(r.bottom);
+  // Force no clipping
+  document.body.style.overflow = 'visible';
+  document.documentElement.style.overflow = 'visible';
+  var container = document.querySelector('.diagram') || document.querySelector('[style*="width"]') || document.body;
+  if (container && container !== document.body) container.style.overflow = 'visible';
+
+  // Scan EVERY element to find true content bounds
+  var maxR = 0, maxB = 0;
+  var all = document.body.getElementsByTagName('*');
+  for (var i = 0; i < all.length; i++) {
+    var r = all[i].getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) {
+      if (r.right > maxR) maxR = Math.ceil(r.right);
+      if (r.bottom > maxB) maxB = Math.ceil(r.bottom);
+    }
   }
-  parent.postMessage({type:'pipeline-size', width: w + 40, height: h + 40}, '*');
+  // Also check body scroll size
+  var b = document.body;
+  maxR = Math.max(maxR, b.scrollWidth, b.offsetWidth);
+  maxB = Math.max(maxB, b.scrollHeight, b.offsetHeight);
+
+  parent.postMessage({type:'pipeline-size', width: maxR + 60, height: maxB + 60}, '*');
 });
 </script>`;
 
@@ -30,7 +41,7 @@ export default function PipelineDiagram({ sceneData }) {
   const html = sceneData?.pipeline_html || '';
   const containerRef = useRef(null);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const [iframeSize, setIframeSize] = useState({ w: 1400, h: 900 });
+  const [iframeSize, setIframeSize] = useState({ w: 3000, h: 2000 });
   const dragRef = useRef({ active: false, sx: 0, sy: 0, tx: 0, ty: 0 });
   const [fitted, setFitted] = useState(false);
 
@@ -63,7 +74,7 @@ export default function PipelineDiagram({ sceneData }) {
   }, [html, iframeSize]);
 
   // Reset fit on new HTML
-  useEffect(() => { setFitted(false); setIframeSize({ w: 1400, h: 900 }); }, [html]);
+  useEffect(() => { setFitted(false); setIframeSize({ w: 3000, h: 2000 }); }, [html]);
 
   // Pan
   const onPointerDown = useCallback((e) => {
