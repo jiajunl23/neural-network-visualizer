@@ -2,6 +2,10 @@
 
 Describe any neural network in plain English and get two complementary visualizations: a publication-quality pipeline diagram and an interactive 3D feature map.
 
+## Example Output
+
+Some example exported visualizations can be found in the examples folder
+
 ## Quick Start
 
 ```bash
@@ -53,10 +57,6 @@ On edits, the pipeline builder receives the existing diagram and modifies it rat
 - "Vision Transformer ViT-B/16"
 - "Stable Diffusion UNet"
 - "Simple 3-layer MLP for MNIST"
-
-## Example Output
-
-An example exported VGG-16 visualization is in the `examples/` folder.
 
 ## Development
 
