@@ -1,13 +1,12 @@
+(The submitted zip on Gradescope already contains the entire project, but in case there is any corruption or issues with the zip file the project code can also be obtained on this github page https://github.com/jiajunl23/neural-network-visualizer (already shared with mspertus). Note: the video because of its size is only in the zip Submitted to Gradescope)
+
 # Neural Network Visualizer
 
-Project Github page: https://github.com/jiajunl23/neural-network-visualizer (The submitted zip already contains the entire project, but in case there is any corruption or issues with the zip file, it can also be obtained on this github page, the video because of its size is only in the zip Submitted to Gradescope)
-
-Describe any neural network in plain English and visualization of the neural network: a pipeline diagram and if the network is a 
-CNN or feedforward network then also a features in 3D visualization.
+Describe any neural network in plain English and visualization of the neural network: a pipeline diagram and if the network is a CNN or feedforward network then also a features in 3D visualization will be created.
 
 ## Project Summary PDF and Demonstration Video
 
-Please see **project summary pdf** and **demonstration video** first before looking at the more detailed things in this README file.
+Please see **project summary pdf** and **demonstration video** (Only in the Zip Submitted on Gradescope) first before looking at the more detailed things in this README file.
 
 ## Example Outputs
 
