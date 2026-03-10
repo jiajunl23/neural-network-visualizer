@@ -101,6 +101,7 @@ export default function App({ sceneData }) {
   const totalParams = sceneData?.total_params || '';
   const layerCount = sceneData?.layers?.length || 0;
   const hasPipeline = !!sceneData?.pipeline_html;
+  const has3D = layerCount > 0;
 
   if (!sceneData) {
     return (
@@ -110,8 +111,10 @@ export default function App({ sceneData }) {
     );
   }
 
-  const showPipeline = (view === 'pipeline' || view === 'both') && hasPipeline;
-  const show3D = view === '3d' || view === 'both';
+  // Default to pipeline-only when no 3D data available
+  const effectiveView = (!has3D && view !== 'pipeline') ? 'pipeline' : view;
+  const showPipeline = (effectiveView === 'pipeline' || effectiveView === 'both') && hasPipeline;
+  const show3D = (effectiveView === '3d' || effectiveView === 'both') && has3D;
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#fff', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -120,24 +123,24 @@ export default function App({ sceneData }) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{modelName}</span>
           {totalParams && <span style={{ fontSize: 10.5, color: '#999' }}>· {totalParams}</span>}
-          <span style={{ fontSize: 10.5, color: '#bbb' }}>· {layerCount} layers</span>
+          {has3D && <span style={{ fontSize: 10.5, color: '#bbb' }}>· {layerCount} layers</span>}
         </div>
         <div style={{ display: 'flex', gap: 3 }}>
-          {hasPipeline && <ViewTab label="Pipeline" active={view === 'pipeline'} onClick={() => setView('pipeline')} />}
-          <ViewTab label="Features in 3D" active={view === '3d'} onClick={() => setView('3d')} />
-          {hasPipeline && <ViewTab label="Both" active={view === 'both'} onClick={() => setView('both')} />}
+          {hasPipeline && <ViewTab label="Pipeline" active={effectiveView === 'pipeline'} onClick={() => setView('pipeline')} />}
+          {has3D && <ViewTab label="Features in 3D" active={effectiveView === '3d'} onClick={() => setView('3d')} />}
+          {hasPipeline && has3D && <ViewTab label="Both" active={effectiveView === 'both'} onClick={() => setView('both')} />}
         </div>
       </div>
 
       {/* Content */}
       <div ref={wrapRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {showPipeline && (
-          <div style={{ height: view === 'both' ? `${splitPct}%` : '100%', flexShrink: 0, overflow: 'hidden' }}>
+          <div style={{ height: effectiveView === 'both' ? `${splitPct}%` : '100%', flexShrink: 0, overflow: 'hidden' }}>
             <PipelineDiagram sceneData={sceneData} />
           </div>
         )}
 
-        {view === 'both' && hasPipeline && (
+        {effectiveView === 'both' && showPipeline && show3D && (
           <div onMouseDown={onHandleDown} style={{
             height: 10, flexShrink: 0, cursor: 'row-resize',
             display: 'flex', alignItems: 'center', justifyContent: 'center',

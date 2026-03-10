@@ -41,7 +41,7 @@ Layers with exact output tensor params. Use repeat to compress.
 
 ```
 ARCHITECTURE: [name]
-FAMILY: [type]
+FAMILY: [cnn / feedforward / transformer / diffusion / autoencoder / gan / rnn]
 PARAMS: [estimate]
 
 STRATEGY: [visual story in 2-3 sentences]

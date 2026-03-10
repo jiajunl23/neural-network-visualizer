@@ -140,9 +140,46 @@ def run_scene_builder(client, plan, user_request, current_scene_json, model, on_
     return scene, text
 
 
+def _parse_family(plan):
+    """Extract FAMILY from planner output. Returns lowercase string."""
+    import re
+    # Flexible: handles "FAMILY: cnn", "**FAMILY**: cnn", "FAMILY : cnn", etc.
+    match = re.search(r'\*{0,2}FAMILY\*{0,2}\s*:\s*(.+)', plan, re.IGNORECASE)
+    if match:
+        raw = match.group(1).strip().lower()
+        # Normalize common variants
+        if any(k in raw for k in ['cnn', 'convolutional', 'conv']):
+            return 'cnn'
+        if any(k in raw for k in ['feedforward', 'feed-forward', 'mlp', 'perceptron']):
+            return 'feedforward'
+        if any(k in raw for k in ['transformer', 'attention']):
+            return 'transformer'
+        if any(k in raw for k in ['diffusion', 'denoising', 'ddpm', 'dit']):
+            return 'diffusion'
+        if any(k in raw for k in ['autoencoder', 'vae', 'ae', 'encoder-decoder']):
+            return 'autoencoder'
+        if any(k in raw for k in ['gan', 'generative adversarial', 'adversarial']):
+            return 'gan'
+        if any(k in raw for k in ['rnn', 'recurrent', 'lstm', 'gru']):
+            return 'rnn'
+        # Return first word as fallback
+        return raw.split()[0].rstrip(',.')
+    return 'unknown'
+
+
+# Families where 3D feature blocks make sense (H×W×C tensors throughout)
+_3D_FAMILIES = {'cnn', 'feedforward'}
+
+
 def run_agent(client, conversation_history, current_scene_json=None,
               model="claude-sonnet-4-5-20250929", on_progress=None):
-    """Three-stage pipeline: Planner → Pipeline Builder + Scene Builder."""
+    """Three-stage pipeline: Planner → Pipeline Builder + (conditionally) Scene Builder.
+
+    3D feature map is only generated for CNN/feedforward architectures where
+    H×W×C tensors tell a meaningful visual story. Other families (transformer,
+    diffusion, autoencoder, GAN, RNN) get pipeline diagram only — saves one
+    API call (~30% cost reduction).
+    """
     def progress(s, d=""):
         if on_progress: on_progress(s, d)
 
@@ -154,10 +191,15 @@ def run_agent(client, conversation_history, current_scene_json=None,
 
     # ── Stage 1: Plan ──
     plan = run_planner(client, conversation_history, current_scene_json, model, on_progress)
-    # This progress call is a Streamlit yield point — stop can trigger here
-    progress("Plan ready", "Now building pipeline diagram and 3D scene...")
+    family = _parse_family(plan)
+    needs_3d = family in _3D_FAMILIES
 
-    # ── Stage 2A: Pipeline HTML (no tools, just text) ──
+    if needs_3d:
+        progress("Plan ready", f"Family: {family} — building pipeline diagram and 3D feature map...")
+    else:
+        progress("Plan ready", f"Family: {family} — building pipeline diagram...")
+
+    # ── Stage 2A: Pipeline HTML (always runs) ──
     current_html = current_scene_json.get("pipeline_html") if current_scene_json else None
     pipeline_html = run_pipeline_builder(
         client, plan, model,
@@ -165,13 +207,24 @@ def run_agent(client, conversation_history, current_scene_json=None,
         user_request=user_request if current_html else None,
         on_progress=on_progress,
     )
-    # Another yield point — stop can trigger here
-    progress("Pipeline ready", "Now building 3D feature map...")
 
-    # ── Stage 2B: Scene JSON (tools) ──
-    scene_json, builder_text = run_scene_builder(
-        client, plan, user_request, current_scene_json, model, on_progress
-    )
+    # ── Stage 2B: Scene JSON (only for CNN/feedforward) ──
+    if needs_3d:
+        progress("Pipeline ready", "Now building 3D feature map...")
+        scene_json, builder_text = run_scene_builder(
+            client, plan, user_request, current_scene_json, model, on_progress
+        )
+    else:
+        # Minimal scene with just metadata — no layers, no 3D view
+        scene_json = {
+            "model_name": _parse_field(plan, "ARCHITECTURE") or "Neural Network",
+            "model_family": family,
+            "total_params": _parse_field(plan, "PARAMS") or "",
+            "layers": [],
+            "connections": [],
+            "groups": [],
+        }
+        builder_text = ""
 
     # ── Combine: store pipeline HTML in scene ──
     if scene_json and pipeline_html:
@@ -181,3 +234,12 @@ def run_agent(client, conversation_history, current_scene_json=None,
 
     response_text = builder_text.strip() or "Visualization built."
     return scene_json, response_text
+
+
+def _parse_field(plan, field_name):
+    """Extract a field value from planner output like 'ARCHITECTURE: VGG-16'."""
+    import re
+    match = re.search(rf'{field_name}:\s*(.+)', plan, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
