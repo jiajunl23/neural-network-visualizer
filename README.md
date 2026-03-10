@@ -1,6 +1,6 @@
 # Neural Network Visualizer
 
-Project Github page: https://github.com/jiajunl23/neural-network-visualizer (The submitted Zip already contains the entire project, but incase there is any corruption or issues with the zip file, it can also be obtained on this github page)
+Project Github page: https://github.com/jiajunl23/neural-network-visualizer (The submitted zip already contains the entire project, but in case there is any corruption or issues with the zip file, it can also be obtained on this github page, the video because of its size is only in the zip Submitted to Gradescope)
 
 Describe any neural network in plain English and visualization of the neural network: a pipeline diagram and if the network is a 
 CNN or feedforward network then also a features in 3D visualization.
