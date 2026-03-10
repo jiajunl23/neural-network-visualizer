@@ -391,15 +391,16 @@ def run_and_update(prompt_text):
             if scene_json:
                 st.session_state.scene_json = scene_json
             status.update(label="Done!", state="complete", expanded=False)
-            st.session_state.messages.append({"role": "assistant", "content": text or "Visualization updated."})
+            # Minimal marker to maintain alternating user/assistant for API compatibility
+            st.session_state.messages.append({"role": "assistant", "content": "Successfully completed"})
         except StopException:
             stopped = True
         except anthropic.APIError as e:
             status.update(label="Error", state="error")
-            st.session_state.messages.append({"role": "assistant", "content": f"API error: {e}"})
+            st.session_state.messages.append({"role": "assistant", "content": f"✗ API error: {e}"})
         except Exception as e:
             status.update(label="Error", state="error")
-            st.session_state.messages.append({"role": "assistant", "content": f"Error: {e}"})
+            st.session_state.messages.append({"role": "assistant", "content": f"✗ Error: {e}"})
 
     # Handle stop OUTSIDE the status block so the message is visible
     if stopped:

@@ -1,44 +1,69 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
 /**
- * PipelineDiagram v7 — Renders Claude's complete HTML document
+ * PipelineDiagram v8 — Auto-sizing iframe
  *
- * Claude generates a full HTML page with its own styles.
- * We render it in an iframe and add pan/zoom on the wrapper.
+ * Injects a tiny script into the iframe that measures actual content bounds
+ * (scrollWidth/scrollHeight) after render and reports back via postMessage.
+ * Parent resizes iframe to fit, then auto-zooms to fill the viewer.
  */
+
+// Script injected into iframe to measure and report content size
+const MEASURE_SCRIPT = `
+<script>
+window.addEventListener('load', function() {
+  var b = document.body;
+  var w = Math.max(b.scrollWidth, b.offsetWidth);
+  var h = Math.max(b.scrollHeight, b.offsetHeight);
+  // Also check all absolutely positioned children
+  var els = document.querySelectorAll('[style*="position"]');
+  for (var i = 0; i < els.length; i++) {
+    var r = els[i].getBoundingClientRect();
+    if (r.right > w) w = Math.ceil(r.right);
+    if (r.bottom > h) h = Math.ceil(r.bottom);
+  }
+  parent.postMessage({type:'pipeline-size', width: w + 40, height: h + 40}, '*');
+});
+</script>`;
 
 export default function PipelineDiagram({ sceneData }) {
   const html = sceneData?.pipeline_html || '';
   const containerRef = useRef(null);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [iframeSize, setIframeSize] = useState({ w: 1400, h: 900 });
   const dragRef = useRef({ active: false, sx: 0, sy: 0, tx: 0, ty: 0 });
   const [fitted, setFitted] = useState(false);
 
-  // Auto-fit on load
+  // Listen for size reports from iframe
   useEffect(() => {
-    if (!html || !containerRef.current || fitted) return;
+    function onMessage(e) {
+      if (e.data?.type === 'pipeline-size') {
+        setIframeSize({ w: e.data.width, h: e.data.height });
+      }
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  // Auto-fit when iframe reports size or on first load
+  useEffect(() => {
+    if (!html || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    // Parse diagram dimensions from the HTML
-    // Parse the LARGEST width/height from HTML — that's the diagram container
-    const allW = [...html.matchAll(/width:\s*(\d+)px/g)].map(m => parseInt(m[1]));
-    const allH = [...html.matchAll(/height:\s*(\d+)px/g)].map(m => parseInt(m[1]));
-    const dw = allW.length ? Math.max(...allW) : 900;
-    const dh = allH.length ? Math.max(...allH) : 500;
-
-    const sx = rect.width / dw;
-    const sy = rect.height / dh;
+    const sx = rect.width / iframeSize.w;
+    const sy = rect.height / iframeSize.h;
     const s = Math.min(sx, sy, 2) * 0.88;
     setTransform({
-      x: (rect.width - dw * s) / 2,
-      y: (rect.height - dh * s) / 2,
+      x: (rect.width - iframeSize.w * s) / 2,
+      y: (rect.height - iframeSize.h * s) / 2,
       scale: s,
     });
     setFitted(true);
-  }, [html, fitted]);
+  }, [html, iframeSize]);
 
-  useEffect(() => { setFitted(false); }, [html]);
+  // Reset fit on new HTML
+  useEffect(() => { setFitted(false); setIframeSize({ w: 1400, h: 900 }); }, [html]);
 
   // Pan
   const onPointerDown = useCallback((e) => {
@@ -81,17 +106,21 @@ export default function PipelineDiagram({ sceneData }) {
     );
   }
 
-  // Determine iframe size from content
-  // Make iframe generously oversized — auto-fit zoom will scale it to fit
-  const allW = [...html.matchAll(/width:\s*(\d+)px/g)].map(m => parseInt(m[1]));
-  const allH = [...html.matchAll(/height:\s*(\d+)px/g)].map(m => parseInt(m[1]));
-  const iframeW = (allW.length ? Math.max(...allW) : 900) + 200;
-  const iframeH = (allH.length ? Math.max(...allH) : 500) + 200;
-
-  // Use the HTML as-is if it's a full document, otherwise wrap it
-  const srcDoc = html.trim().startsWith('<!DOCTYPE') || html.trim().startsWith('<html')
-    ? html
-    : `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;background:#f8f9fb">${html}</body></html>`;
+  // Inject measurement script into the HTML
+  let srcDoc;
+  const trimmed = html.trim();
+  if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+    // Full document — inject script before </body>
+    const bodyClose = trimmed.lastIndexOf('</body>');
+    if (bodyClose >= 0) {
+      srcDoc = trimmed.slice(0, bodyClose) + MEASURE_SCRIPT + trimmed.slice(bodyClose);
+    } else {
+      srcDoc = trimmed + MEASURE_SCRIPT;
+    }
+  } else {
+    // Fragment — wrap with full document
+    srcDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;background:#f8f9fb;overflow:visible">${trimmed}${MEASURE_SCRIPT}</body></html>`;
+  }
 
   return (
     <div
@@ -120,8 +149,8 @@ export default function PipelineDiagram({ sceneData }) {
         title="Pipeline Diagram"
         style={{
           border: 'none',
-          width: iframeW,
-          height: iframeH,
+          width: iframeSize.w,
+          height: iframeSize.h,
           transform: `translate(${transform.x}px,${transform.y}px) scale(${transform.scale})`,
           transformOrigin: '0 0',
           pointerEvents: 'none',
