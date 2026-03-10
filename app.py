@@ -5,6 +5,23 @@ import streamlit as st
 import anthropic
 from src.agent import run_agent
 
+
+def _safe_scene_injection(scene_json):
+    """Safely inject scene data into HTML, escaping </ to prevent parser breakage."""
+    raw = json.dumps(scene_json)
+    raw = raw.replace("</", "<\\/")
+    return f"<script>window.__SCENE_DATA__ = {raw};</script>"
+
+
+def _inject_scene_into_html(html, scene_json):
+    """Inject scene data before the LAST </head> tag (not ones inside JS bundles)."""
+    injection = _safe_scene_injection(scene_json)
+    # Use rfind to target the actual </head> tag, not string literals inside JS
+    pos = html.rfind("</head>")
+    if pos == -1:
+        return html
+    return html[:pos] + injection + html[pos:]
+
 st.set_page_config(
     page_title="Neural Network Visualizer",
     page_icon="◇",
@@ -198,8 +215,7 @@ with st.sidebar:
             try:
                 with open("dist/index.html", "r") as f:
                     export_html = f.read()
-                injection = f"<script>window.__SCENE_DATA__ = {json.dumps(st.session_state.scene_json)};</script>"
-                export_html = export_html.replace("</head>", injection + "</head>")
+                export_html = _inject_scene_into_html(export_html, st.session_state.scene_json)
                 model_name = st.session_state.scene_json.get("model_name", "network").replace(" ", "_")
                 st.download_button(
                     "📥 Export as HTML",
@@ -420,8 +436,7 @@ with viz_col:
         try:
             with open("dist/index.html", "r") as f:
                 html = f.read()
-            injection = f"<script>window.__SCENE_DATA__ = {json.dumps(st.session_state.scene_json)};</script>"
-            html = html.replace("</head>", injection + "</head>")
+            html = _inject_scene_into_html(html, st.session_state.scene_json)
             st.components.v1.html(html, height=640, scrolling=False)
         except FileNotFoundError:
             st.warning("Frontend not built. Run `cd frontend && npm install && npm run build`.")

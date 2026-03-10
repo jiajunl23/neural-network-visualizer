@@ -225,17 +225,9 @@ function layoutUNet(layers) {
 }
 
 export function computeLayout(sceneData) {
-  const family = sceneData.model_family || 'feedforward';
+  // Always use sequential layout for the 3D feature view.
+  // The feature map shows tensor size progression — always a linear flow.
+  // U-shape / vertical stacking belongs to the pipeline diagram (HTML).
   const layers = sceneData.layers || [];
-
-  switch (family) {
-    case 'cnn': case 'feedforward': case 'rnn': case 'gan':
-      return layoutSequential(layers);
-    case 'transformer':
-      return layoutTransformer(layers);
-    case 'diffusion': case 'autoencoder':
-      return layoutUNet(layers);
-    default:
-      return layoutSequential(layers);
-  }
+  return layoutSequential(layers);
 }

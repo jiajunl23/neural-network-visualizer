@@ -1,38 +1,29 @@
-"""Two-stage agent: Planner → Builder.
+"""Three-stage agent: Planner → Pipeline Builder → Scene Builder.
 
-Stage 1 (Planner): No tools. Analyzes the architecture, decides visual hierarchy,
-    grouping, parallel paths, what to emphasize vs compress.
-Stage 2 (Builder): Has tools. Mechanically converts the plan into scene JSON.
+Planner: architecture analysis + layout design (no tools)
+Pipeline Builder: generates beautiful HTML diagram (no tools, raw text output)
+Scene Builder: generates 3D scene JSON (has tools)
 """
 
 import json
 import anthropic
-from src.prompts import PLANNER_PROMPT, BUILDER_PROMPT
+from src.prompts import PLANNER_PROMPT, PIPELINE_BUILDER_PROMPT, SCENE_BUILDER_PROMPT
 from src.tools import TOOL_DEFINITIONS, execute_tool
 
 
-def run_planner(
-    client: anthropic.Anthropic,
-    conversation_history: list[dict],
-    current_scene_json: dict | None,
-    model: str,
-    on_progress: callable = None,
-) -> str:
-    """Stage 1: Planner — pure reasoning, no tools."""
-
-    def progress(step, detail=""):
-        if on_progress:
-            on_progress(step, detail)
+def run_planner(client, conversation_history, current_scene_json, model, on_progress=None):
+    """Stage 1: Plan the architecture and layout."""
+    def progress(s, d=""):
+        if on_progress: on_progress(s, d)
 
     progress("Analyzing", "Understanding the architecture...")
 
     system = PLANNER_PROMPT
     if current_scene_json:
-        # Give planner awareness of current state for modifications
-        layer_summary = []
+        lines = []
         for l in current_scene_json.get("layers", []):
-            dims = ""
             p = l.get("params", {})
+            dims = ""
             if p.get("H") and p.get("W") and p.get("C"):
                 dims = f"{p['H']}×{p['W']}×{p['C']}"
             elif p.get("neurons"):
@@ -40,178 +31,134 @@ def run_planner(
             elif p.get("dim"):
                 dims = f"dim={p['dim']}"
             rep = f" ×{l['repeat']}" if l.get("repeat", 1) > 1 else ""
-            layer_summary.append(f"  {l['id']}: {l.get('label', l['type'])} [{dims}]{rep}")
+            lines.append(f"  {l['id']}: {l.get('label', l['type'])} [{dims}]{rep}")
+        system += f"\n\n## Current Scene\nModel: {current_scene_json.get('model_name', '?')}\nLayers:\n" + "\n".join(lines)
 
-        group_summary = []
-        for g in current_scene_json.get("groups", []):
-            rep = f" ×{g['repeat']}" if g.get("repeat") else ""
-            group_summary.append(f"  {g['label']}: [{', '.join(g.get('layer_ids', []))}]{rep}")
+    messages = [{"role": m["role"], "content": m["content"]} for m in conversation_history]
+    progress("Planning", "Designing layout and visual hierarchy...")
 
-        system += f"\n\n## Current Scene (for modification requests)\n"
-        system += f"Model: {current_scene_json.get('model_name', '?')}\n"
-        system += f"Layers:\n" + "\n".join(layer_summary) + "\n"
-        if group_summary:
-            system += f"Groups:\n" + "\n".join(group_summary) + "\n"
-        system += f"\nIf the user wants a modification, plan the minimal changes needed."
-        system += f"\nIf the user wants a new architecture, plan from scratch."
+    resp = client.messages.create(model=model, max_tokens=4096, system=system, messages=messages)
+    return "".join(b.text for b in resp.content if b.type == "text")
 
-    messages = [{"role": msg["role"], "content": msg["content"]} for msg in conversation_history]
 
-    progress("Planning", "Designing visual hierarchy and grouping...")
+def run_pipeline_builder(client, plan, model, on_progress=None):
+    """Stage 2A: Generate beautiful HTML pipeline diagram. No tools — raw text output."""
+    def progress(s, d=""):
+        if on_progress: on_progress(s, d)
 
-    response = client.messages.create(
+    progress("Drawing pipeline", "Generating HTML diagram...")
+
+    resp = client.messages.create(
         model=model,
-        max_tokens=4096,
-        system=system,
-        messages=messages,
+        max_tokens=12000,
+        system=PIPELINE_BUILDER_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": f"Generate the HTML pipeline diagram for this plan:\n\n{plan}"
+        }],
     )
 
-    plan = ""
-    for block in response.content:
-        if block.type == "text":
-            plan += block.text
+    html = "".join(b.text for b in resp.content if b.type == "text").strip()
 
-    return plan
+    # Clean up: remove markdown code fences if present
+    if html.startswith("```html"):
+        html = html[7:]
+    elif html.startswith("```"):
+        html = html[3:]
+    if html.endswith("```"):
+        html = html[:-3]
+    html = html.strip()
+
+    # Ensure it starts from the actual HTML
+    doctype_idx = html.lower().find('<!doctype')
+    html_idx = html.lower().find('<html')
+    div_idx = html.find('<div')
+    start = -1
+    if doctype_idx >= 0:
+        start = doctype_idx
+    elif html_idx >= 0:
+        start = html_idx
+    elif div_idx >= 0:
+        start = div_idx
+    if start > 0:
+        html = html[start:]
+
+    return html
 
 
-def run_builder(
-    client: anthropic.Anthropic,
-    plan: str,
-    user_request: str,
-    current_scene_json: dict | None,
-    model: str,
-    on_progress: callable = None,
-) -> tuple[dict | None, str]:
-    """Stage 2: Builder — converts plan into tool calls."""
+def run_scene_builder(client, plan, user_request, current_scene_json, model, on_progress=None):
+    """Stage 2B: Generate 3D scene JSON via tools."""
+    def progress(s, d=""):
+        if on_progress: on_progress(s, d)
 
-    def progress(step, detail=""):
-        if on_progress:
-            on_progress(step, detail)
+    progress("Building 3D", "Generating feature map scene...")
 
-    progress("Building", "Converting plan to visualization...")
-
-    system = BUILDER_PROMPT
+    system = SCENE_BUILDER_PROMPT
     if current_scene_json:
-        compact = json.dumps(current_scene_json, separators=(",", ":"))
-        system += f"\n\n## Current Scene State\n```json\n{compact}\n```\nModify or replace based on the plan."
+        ctx = {k: v for k, v in current_scene_json.items() if k != "pipeline_html"}
+        system += f"\n\n## Current Scene\n```json\n{json.dumps(ctx, separators=(',', ':'))}\n```"
 
-    # Builder gets the plan as context + the original user request
-    messages = [
-        {
-            "role": "user",
-            "content": (
-                f"## Visualization Plan\n\n{plan}\n\n"
-                f"---\n\n"
-                f"## Original User Request\n\n{user_request}\n\n"
-                f"---\n\n"
-                f"Follow the plan above and call the appropriate tools to build the visualization."
-            ),
-        }
-    ]
+    messages = [{
+        "role": "user",
+        "content": f"## Plan\n\n{plan}\n\n---\nBuild the 3D scene from the plan's 3D LAYERS and 3D CONNECTIONS sections."
+    }]
 
-    scene_json = current_scene_json
-    assistant_text = ""
-    max_iterations = 10
+    scene = current_scene_json
+    text = ""
 
-    for iteration in range(max_iterations):
-        if iteration > 0:
-            progress("Refining", f"Processing tool results (step {iteration + 1})...")
-
-        response = client.messages.create(
-            model=model,
-            max_tokens=8192,
-            system=system,
-            tools=TOOL_DEFINITIONS,
-            messages=messages,
+    for i in range(4):
+        if i > 0: progress("Refining 3D", f"Step {i + 1}...")
+        resp = client.messages.create(
+            model=model, max_tokens=8000, system=system,
+            tools=TOOL_DEFINITIONS, messages=messages,
         )
+        results = []
+        for b in resp.content:
+            if b.type == "text":
+                text += b.text
+            elif b.type == "tool_use":
+                progress("Executing", f"{b.name}...")
+                updated, msg = execute_tool(b.name, b.input, scene)
+                if updated: scene = updated
+                results.append({"type": "tool_result", "tool_use_id": b.id, "content": msg})
 
-        tool_results = []
-        assistant_content = response.content
-
-        for block in response.content:
-            if block.type == "text":
-                assistant_text += block.text
-            elif block.type == "tool_use":
-                progress("Executing", f"{block.name}...")
-                updated_scene, result_msg = execute_tool(
-                    tool_name=block.name,
-                    tool_input=block.input,
-                    current_scene=scene_json,
-                )
-                if updated_scene is not None:
-                    scene_json = updated_scene
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result_msg,
-                })
-
-        if response.stop_reason == "end_turn" or not tool_results:
+        if resp.stop_reason == "end_turn" or not results:
             break
+        messages.append({"role": "assistant", "content": resp.content})
+        messages.append({"role": "user", "content": results})
 
-        messages.append({"role": "assistant", "content": assistant_content})
-        messages.append({"role": "user", "content": tool_results})
-
-    return scene_json, assistant_text
+    return scene, text
 
 
-def run_agent(
-    client: anthropic.Anthropic,
-    conversation_history: list[dict],
-    current_scene_json: dict | None,
-    model: str = "claude-sonnet-4-5-20250929",
-    on_progress: callable = None,
-) -> tuple[dict | None, str]:
-    """
-    Two-stage pipeline: Planner → Builder.
+def run_agent(client, conversation_history, current_scene_json=None,
+              model="claude-sonnet-4-5-20250929", on_progress=None):
+    """Three-stage pipeline: Planner → Pipeline Builder + Scene Builder."""
+    def progress(s, d=""):
+        if on_progress: on_progress(s, d)
 
-    Stage 1 (Planner): Analyzes architecture, decides visual hierarchy,
-        grouping strategy, parallel paths, what to emphasize vs compress.
-    Stage 2 (Builder): Converts the plan into tool calls that produce scene JSON.
-
-    Returns:
-        (scene_json, text_response)
-    """
-
-    def progress(step, detail=""):
-        if on_progress:
-            on_progress(step, detail)
-
-    # Get the latest user message
     user_request = ""
-    for msg in reversed(conversation_history):
-        if msg["role"] == "user":
-            user_request = msg["content"]
+    for m in reversed(conversation_history):
+        if m["role"] == "user":
+            user_request = m["content"]
             break
 
     # ── Stage 1: Plan ──
-    plan = run_planner(
-        client=client,
-        conversation_history=conversation_history,
-        current_scene_json=current_scene_json,
-        model=model,
-        on_progress=on_progress,
+    plan = run_planner(client, conversation_history, current_scene_json, model, on_progress)
+    progress("Plan ready", "Now building pipeline diagram and 3D scene...")
+
+    # ── Stage 2A: Pipeline HTML (no tools, just text) ──
+    pipeline_html = run_pipeline_builder(client, plan, model, on_progress)
+
+    # ── Stage 2B: Scene JSON (tools) ──
+    scene_json, builder_text = run_scene_builder(
+        client, plan, user_request, current_scene_json, model, on_progress
     )
 
-    progress("Plan ready", "Visual strategy decided, now building...")
-
-    # ── Stage 2: Build ──
-    scene_json, builder_text = run_builder(
-        client=client,
-        plan=plan,
-        user_request=user_request,
-        current_scene_json=current_scene_json,
-        model=model,
-        on_progress=on_progress,
-    )
+    # ── Combine: store pipeline HTML in scene ──
+    if scene_json and pipeline_html:
+        scene_json["pipeline_html"] = pipeline_html
 
     progress("Rendering", "Preparing visualization...")
 
-    # Combine: use builder's summary, but if it's empty, generate one from plan
-    response_text = builder_text.strip()
-    if not response_text:
-        # Extract first 2 lines of plan as fallback
-        plan_lines = [l.strip() for l in plan.split("\n") if l.strip()]
-        response_text = " ".join(plan_lines[:2]) if plan_lines else "Visualization built."
-
+    response_text = builder_text.strip() or "Visualization built."
     return scene_json, response_text
