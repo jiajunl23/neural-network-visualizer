@@ -1,8 +1,15 @@
 # Neural Network Visualizer
 
-Describe any neural network in plain English and get two complementary visualizations: a publication-quality pipeline diagram and an interactive 3D feature map.
+Project Github page: https://github.com/jiajunl23/neural-network-visualizer (The submitted Zip already contains the entire project, but incase there is any corruption or issues with the zip file, it can also be obtained on this github page)
 
-## Example Output
+Describe any neural network in plain English and visualization of the neural network: a pipeline diagram and if the network is a 
+CNN or feedforward network then also a features in 3D visualization.
+
+## Project Summary PDF and Demonstration Video
+
+Please see **project summary pdf** and **demonstration video** first before looking at the more detailed things in this README file.
+
+## Example Outputs
 
 Some example exported visualizations can be found in the examples folder
 
