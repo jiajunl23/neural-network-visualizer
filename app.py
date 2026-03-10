@@ -114,6 +114,59 @@ st.markdown("""
     font-family: 'Inter', sans-serif !important;
     font-size: 13px !important;
     padding-left: 16px !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+[data-testid="stChatInput"] textarea:focus,
+[data-testid="stChatInput"] textarea:active,
+[data-testid="stChatInput"] textarea:focus-visible {
+    border: 1px solid #d4d4dc !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+[data-testid="stChatInput"],
+[data-testid="stChatInput"] *,
+[data-testid="stChatInput"]:focus-within,
+[data-testid="stChatInput"] > div,
+[data-testid="stChatInput"] > div:focus-within,
+[data-testid="stChatInput"] [data-baseweb],
+[data-testid="stChatInput"] [data-baseweb]:focus-within {
+    border-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+/* ── Chat send button — green instead of red ── */
+[data-testid="stChatInput"] button,
+[data-testid="stChatInput"] button:hover,
+[data-testid="stChatInput"] button:focus,
+[data-testid="stChatInput"] button:active {
+    background-color: #3d9e3d !important;
+    border-color: #3d9e3d !important;
+    color: #fff !important;
+}
+[data-testid="stChatInput"] button svg {
+    fill: #fff !important;
+    stroke: #fff !important;
+}
+
+/* ── Text inputs (API key, sidebar) — kill focus borders ── */
+[data-testid="stTextInput"] input,
+[data-testid="stTextInput"] input:focus,
+[data-testid="stTextInput"] input:active,
+[data-testid="stTextInput"] input:focus-visible {
+    border: 1px solid #d4d4dc !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+[data-testid="stTextInput"],
+[data-testid="stTextInput"] *,
+[data-testid="stTextInput"]:focus-within,
+[data-testid="stTextInput"] [data-baseweb],
+[data-testid="stTextInput"] [data-baseweb]:focus-within {
+    border-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
 }
 
 /* ── Viewport card ── */
@@ -317,6 +370,8 @@ EXAMPLES = ["VGG-16", "ResNet-18", "Vision Transformer (ViT-B/16)", "Simple 3-la
 
 def run_and_update(prompt_text):
     """Run agent for a prompt, update session state, rerun."""
+    from streamlit.runtime.scriptrunner import StopException
+
     st.session_state.messages.append({"role": "user", "content": prompt_text})
 
     with st.status("Building visualization...", expanded=True) as status:
@@ -324,6 +379,7 @@ def run_and_update(prompt_text):
             status.update(label=f"{step}...", state="running")
             st.write(f"**{step}** — {detail}")
 
+        stopped = False
         try:
             scene_json, text = run_agent(
                 client=st.session_state.client,
@@ -336,12 +392,21 @@ def run_and_update(prompt_text):
                 st.session_state.scene_json = scene_json
             status.update(label="Done!", state="complete", expanded=False)
             st.session_state.messages.append({"role": "assistant", "content": text or "Visualization updated."})
+        except StopException:
+            stopped = True
         except anthropic.APIError as e:
             status.update(label="Error", state="error")
             st.session_state.messages.append({"role": "assistant", "content": f"API error: {e}"})
         except Exception as e:
             status.update(label="Error", state="error")
             st.session_state.messages.append({"role": "assistant", "content": f"Error: {e}"})
+
+    # Handle stop OUTSIDE the status block so the message is visible
+    if stopped:
+        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+            st.session_state.messages.pop()
+        st.warning("⏹ Generation stopped. Your previous visualization is preserved.")
+        return  # Don't rerun — let user see the message and try again
 
     st.rerun()
 

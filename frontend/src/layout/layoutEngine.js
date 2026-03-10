@@ -97,10 +97,18 @@ export function computeBlockSize(layer) {
     return { size: [sx, s, s * 0.6], annotation: `${vocabSize}×${dim}` };
   }
 
-  // ── Transformer block ──
+  // ── Transformer block / any dim-based layer ──
   if (dim) {
     const s = Math.max(Math.min(Math.sqrt(dim) / 8, 2.5), 0.5);
     return { size: [0.5, s, s], annotation: `${seqLen || '?'}×${dim}` };
+  }
+
+  // ── RNN / LSTM / GRU ──
+  const hiddenSize = p.hidden_size || null;
+  if (hiddenSize) {
+    const s = Math.max(Math.min(Math.sqrt(hiddenSize) / 10, 2.0), 0.3);
+    const sx = Math.max(Math.min(Math.sqrt(hiddenSize) / 15, 1.5), 0.2);
+    return { size: [sx, s, s * 0.6], annotation: `${seqLen || '?'}×${hiddenSize}` };
   }
 
   // ── Flatten → output is 1×1×features ──
@@ -111,18 +119,35 @@ export function computeBlockSize(layer) {
     };
   }
 
-  // ── Normalization — passes through shape, show features ──
+  // ── Normalization — passes through shape ──
   if (features) {
     const s = Math.max(Math.min(Math.sqrt(features) / 10, 2.0), 0.3);
     return { size: [0.04, s, s], annotation: `${features}` };
   }
 
-  // ── Dropout — shape passthrough, no annotation needed ──
+  // ── Squeeze-Excitation ──
+  const reduction = p.reduction || null;
+  if (C && reduction) {
+    return {
+      size: [channelToVisual(C), spatialToVisual(H || 1), spatialToVisual(W || 1)],
+      annotation: C ? `SE ${C}` : 'SE'
+    };
+  }
+
+  // ── Detection / Segmentation heads ──
+  const numClasses = p.num_classes || null;
+  const numAnchors = p.num_anchors || null;
+  if (numClasses) {
+    const s = Math.max(Math.min(Math.sqrt(numClasses) / 8, 2.0), 0.4);
+    return { size: [0.5, s, s], annotation: `${numClasses} cls` };
+  }
+
+  // ── Dropout — shape passthrough ──
   if (rate !== null && rate !== undefined) {
     return { size: [0.06, 0.5, 0.5], annotation: '' };
   }
 
-  // ── Activation — shape passthrough, no annotation needed ──
+  // ── Activation — shape passthrough ──
   if (fn) {
     return { size: [0.06, 0.5, 0.5], annotation: '' };
   }
@@ -134,10 +159,16 @@ export function computeBlockSize(layer) {
 function sameGroup(typeA, typeB) {
   if (!typeA || !typeB) return false;
   if (typeA === typeB) return true;
-  const convGroup = new Set(['conv2d', 'conv1d', 'batchnorm', 'activation', 'layernorm']);
+  const convGroup = new Set(['conv2d', 'conv1d', 'depthwise_conv', 'batchnorm', 'groupnorm', 'instancenorm', 'activation', 'layernorm']);
   if (convGroup.has(typeA) && convGroup.has(typeB)) return true;
   const denseGroup = new Set(['dense', 'activation', 'dropout']);
   if (denseGroup.has(typeA) && denseGroup.has(typeB)) return true;
+  const attnGroup = new Set(['multi_head_attention', 'self_attention', 'cross_attention', 'layernorm', 'feed_forward']);
+  if (attnGroup.has(typeA) && attnGroup.has(typeB)) return true;
+  const rnnGroup = new Set(['lstm', 'gru', 'rnn', 'dropout']);
+  if (rnnGroup.has(typeA) && rnnGroup.has(typeB)) return true;
+  const mergeGroup = new Set(['concatenate', 'add', 'multiply']);
+  if (mergeGroup.has(typeA) && mergeGroup.has(typeB)) return true;
   return false;
 }
 

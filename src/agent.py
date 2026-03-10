@@ -33,6 +33,8 @@ def run_planner(client, conversation_history, current_scene_json, model, on_prog
             rep = f" ×{l['repeat']}" if l.get("repeat", 1) > 1 else ""
             lines.append(f"  {l['id']}: {l.get('label', l['type'])} [{dims}]{rep}")
         system += f"\n\n## Current Scene\nModel: {current_scene_json.get('model_name', '?')}\nLayers:\n" + "\n".join(lines)
+        if current_scene_json.get("pipeline_html"):
+            system += f"\n\nA pipeline diagram already exists. For minor edits (colors, labels, adding/removing a block), plan MINIMAL changes and note 'APPROACH: edit existing diagram'. For major restructuring, plan from scratch with 'APPROACH: full rebuild'."
 
     messages = [{"role": m["role"], "content": m["content"]} for m in conversation_history]
     progress("Planning", "Designing layout and visual hierarchy...")
@@ -41,21 +43,33 @@ def run_planner(client, conversation_history, current_scene_json, model, on_prog
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
-def run_pipeline_builder(client, plan, model, on_progress=None):
+def run_pipeline_builder(client, plan, model, current_html=None, user_request=None, on_progress=None):
     """Stage 2A: Generate beautiful HTML pipeline diagram. No tools — raw text output."""
     def progress(s, d=""):
         if on_progress: on_progress(s, d)
 
     progress("Drawing pipeline", "Generating HTML diagram...")
 
+    system = PIPELINE_BUILDER_PROMPT
+
+    # Build the user message
+    parts = [f"Generate the HTML pipeline diagram for this plan:\n\n{plan}"]
+
+    # If editing, give the builder the existing HTML and the user's request
+    if current_html and user_request:
+        parts = [
+            f"## Current Diagram HTML\n\n{current_html}\n\n---\n\n"
+            f"## User's Edit Request\n\n{user_request}\n\n---\n\n"
+            f"## Updated Plan\n\n{plan}\n\n---\n\n"
+            f"Modify the existing diagram according to the user's request and the updated plan. "
+            f"Keep the existing layout and style as much as possible — only change what the user asked for."
+        ]
+
     resp = client.messages.create(
         model=model,
         max_tokens=12000,
-        system=PIPELINE_BUILDER_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": f"Generate the HTML pipeline diagram for this plan:\n\n{plan}"
-        }],
+        system=system,
+        messages=[{"role": "user", "content": parts[0]}],
     )
 
     html = "".join(b.text for b in resp.content if b.type == "text").strip()
@@ -87,7 +101,7 @@ def run_pipeline_builder(client, plan, model, on_progress=None):
 
 
 def run_scene_builder(client, plan, user_request, current_scene_json, model, on_progress=None):
-    """Stage 2B: Generate 3D scene JSON via tools."""
+    """Stage 2B: Generate 3D scene JSON via tools. Single call — no refinement loop."""
     def progress(s, d=""):
         if on_progress: on_progress(s, d)
 
@@ -106,26 +120,22 @@ def run_scene_builder(client, plan, user_request, current_scene_json, model, on_
     scene = current_scene_json
     text = ""
 
-    for i in range(4):
-        if i > 0: progress("Refining 3D", f"Step {i + 1}...")
-        resp = client.messages.create(
-            model=model, max_tokens=8000, system=system,
-            tools=TOOL_DEFINITIONS, messages=messages,
-        )
-        results = []
-        for b in resp.content:
-            if b.type == "text":
-                text += b.text
-            elif b.type == "tool_use":
-                progress("Executing", f"{b.name}...")
-                updated, msg = execute_tool(b.name, b.input, scene)
-                if updated: scene = updated
-                results.append({"type": "tool_result", "tool_use_id": b.id, "content": msg})
+    resp = client.messages.create(
+        model=model, max_tokens=8000, system=system,
+        tools=TOOL_DEFINITIONS, messages=messages,
+    )
 
-        if resp.stop_reason == "end_turn" or not results:
-            break
-        messages.append({"role": "assistant", "content": resp.content})
-        messages.append({"role": "user", "content": results})
+    for b in resp.content:
+        if b.type == "text":
+            text += b.text
+        elif b.type == "tool_use":
+            progress("Executing", f"{b.name}...")
+            updated, msg = execute_tool(b.name, b.input, scene)
+            if updated:
+                scene = updated
+            # Use tool result message as summary if no text
+            if not text:
+                text = msg
 
     return scene, text
 
@@ -144,10 +154,19 @@ def run_agent(client, conversation_history, current_scene_json=None,
 
     # ── Stage 1: Plan ──
     plan = run_planner(client, conversation_history, current_scene_json, model, on_progress)
+    # This progress call is a Streamlit yield point — stop can trigger here
     progress("Plan ready", "Now building pipeline diagram and 3D scene...")
 
     # ── Stage 2A: Pipeline HTML (no tools, just text) ──
-    pipeline_html = run_pipeline_builder(client, plan, model, on_progress)
+    current_html = current_scene_json.get("pipeline_html") if current_scene_json else None
+    pipeline_html = run_pipeline_builder(
+        client, plan, model,
+        current_html=current_html,
+        user_request=user_request if current_html else None,
+        on_progress=on_progress,
+    )
+    # Another yield point — stop can trigger here
+    progress("Pipeline ready", "Now building 3D feature map...")
 
     # ── Stage 2B: Scene JSON (tools) ──
     scene_json, builder_text = run_scene_builder(

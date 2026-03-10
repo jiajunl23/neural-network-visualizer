@@ -21,10 +21,11 @@ export default function PipelineDiagram({ sceneData }) {
     if (rect.width <= 0 || rect.height <= 0) return;
 
     // Parse diagram dimensions from the HTML
-    const wMatch = html.match(/width:\s*(\d+)px/);
-    const hMatch = html.match(/height:\s*(\d+)px/);
-    const dw = wMatch ? parseInt(wMatch[1]) : 900;
-    const dh = hMatch ? parseInt(hMatch[1]) : 500;
+    // Parse the LARGEST width/height from HTML — that's the diagram container
+    const allW = [...html.matchAll(/width:\s*(\d+)px/g)].map(m => parseInt(m[1]));
+    const allH = [...html.matchAll(/height:\s*(\d+)px/g)].map(m => parseInt(m[1]));
+    const dw = allW.length ? Math.max(...allW) : 900;
+    const dh = allH.length ? Math.max(...allH) : 500;
 
     const sx = rect.width / dw;
     const sy = rect.height / dh;
@@ -81,10 +82,11 @@ export default function PipelineDiagram({ sceneData }) {
   }
 
   // Determine iframe size from content
-  const wMatch = html.match(/width:\s*(\d+)px/);
-  const hMatch = html.match(/height:\s*(\d+)px/);
-  const iframeW = wMatch ? parseInt(wMatch[1]) + 60 : 1000;
-  const iframeH = hMatch ? parseInt(hMatch[1]) + 60 : 600;
+  // Make iframe generously oversized — auto-fit zoom will scale it to fit
+  const allW = [...html.matchAll(/width:\s*(\d+)px/g)].map(m => parseInt(m[1]));
+  const allH = [...html.matchAll(/height:\s*(\d+)px/g)].map(m => parseInt(m[1]));
+  const iframeW = (allW.length ? Math.max(...allW) : 900) + 200;
+  const iframeH = (allH.length ? Math.max(...allH) : 500) + 200;
 
   // Use the HTML as-is if it's a full document, otherwise wrap it
   const srcDoc = html.trim().startsWith('<!DOCTYPE') || html.trim().startsWith('<html')

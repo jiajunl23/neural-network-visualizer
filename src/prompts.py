@@ -90,6 +90,9 @@ You receive a visualization plan. Make it beautiful. Make it clear. Make it look
 Hard rules:
 1. Output ONLY raw HTML from `<!DOCTYPE html>` to `</html>`. No markdown, no code fences, no explanation.
 2. The outermost diagram container must have explicit `width` and `height` in its inline style (e.g. `style="width:900px;height:600px"`) so the viewer can detect its size.
+3. Do NOT include a title or subtitle — the app already displays the model name above the diagram.
+4. Use `background: #f8f9fb` on the body to match the app's viewer background.
+5. Keep the diagram compact — minimize empty margins. The viewer has pan/zoom so users can explore details.
 """
 
 # ═══════════════════════════════════════════════════════════════════════════════
