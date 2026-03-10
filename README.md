@@ -75,7 +75,3 @@ To modify the frontend and rebuild:
 ```bash
 cd frontend && npm install && npm run build && cd ..
 ```
-
-The pre-built `dist/index.html` is included — this step is only needed if you edit files in `frontend/src/`.
-
-Note: `frontend/index.html` is the source template (16 lines). `dist/index.html` is the build output (~1.1MB). These are separate files — don't mix them up.
