@@ -16,6 +16,8 @@ Some example exported visualizations can be found in the examples folder
 
 ## Quick Start
 
+The Python version need to be >= 3.10
+
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
